@@ -4,7 +4,7 @@
 
 import { spawn } from 'child_process';
 import { createConnection } from 'net';
-import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, openSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -37,7 +37,6 @@ export class DaemonManager {
       mkdirSync(DAEMON_DIR, { recursive: true });
     }
 
-    const { openSync } = require('fs') as typeof import('fs');
     const out = openSync(LOG_FILE, 'a');
     const err = openSync(LOG_FILE, 'a');
 

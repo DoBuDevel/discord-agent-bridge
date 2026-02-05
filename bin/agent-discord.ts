@@ -333,7 +333,7 @@ program
       const running = await DaemonManager.isRunning(port);
       if (!running) {
         console.log(chalk.gray('   Starting bridge daemon...'));
-        const entryPoint = resolve(import.meta.dirname, '../dist/index.js');
+        const entryPoint = resolve(import.meta.dirname, '../src/daemon-entry.js');
         DaemonManager.startDaemon(entryPoint);
         const ready = await DaemonManager.waitForReady(port);
         if (ready) {

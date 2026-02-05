@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'bin/agent-discord.ts'],
+  entry: ['src/index.ts', 'src/daemon-entry.ts', 'bin/agent-discord.ts'],
   format: ['esm'],
   dts: true,
   clean: true,
