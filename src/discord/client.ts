@@ -298,8 +298,13 @@ export class DiscordClient {
         return true;
       }
       return false;
-    } catch (error) {
-      console.error(`Failed to delete channel ${channelId}:`, error);
+    } catch (error: any) {
+      // 10003 = Unknown Channel (already deleted), just log briefly
+      if (error?.code === 10003) {
+        console.log(`Channel ${channelId} already deleted`);
+      } else {
+        console.error(`Failed to delete channel ${channelId}:`, error);
+      }
       return false;
     }
   }
