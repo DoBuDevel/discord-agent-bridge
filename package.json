@@ -1,0 +1,37 @@
+{
+  "name": "discord-agent-bridge",
+  "version": "0.1.0",
+  "description": "Bridge AI agent outputs to Discord via Claude Code hooks and tmux",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "agent-discord": "./dist/bin/agent-discord.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "discord",
+    "ai-agent",
+    "claude-code",
+    "tmux",
+    "bridge"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.5",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.5",
+    "tsx": "^4.7.0",
+    "tsup": "^8.0.1"
+  }
+}
