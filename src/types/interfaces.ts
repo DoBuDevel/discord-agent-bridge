@@ -19,6 +19,7 @@ export interface ICommandExecutor {
 export interface IStorage {
   readFile(path: string, encoding: string): string;
   writeFile(path: string, data: string): void;
+  chmod(path: string, mode: number): void;
   exists(path: string): boolean;
   mkdirp(path: string): void;
   unlink(path: string): void;

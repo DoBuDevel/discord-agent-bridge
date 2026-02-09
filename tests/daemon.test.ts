@@ -26,6 +26,8 @@ class MockStorage implements IStorage {
     this.files.set(path, data);
   }
 
+  chmod(_path: string, _mode: number): void {}
+
   exists(path: string): boolean {
     return this.files.has(path) || this.dirs.has(path);
   }

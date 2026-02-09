@@ -76,6 +76,7 @@ export class ConfigManager {
     const current = this.loadStoredConfig();
     const newConfig = { ...current, ...updates };
     this.storage.writeFile(this.configFile, JSON.stringify(newConfig, null, 2));
+    this.storage.chmod(this.configFile, 0o600);
 
     // Invalidate cached config
     this._config = undefined;

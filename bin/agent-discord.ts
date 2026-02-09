@@ -17,6 +17,10 @@ import { execSync } from 'child_process';
 import { createInterface } from 'readline';
 import chalk from 'chalk';
 
+function escapeShellArg(arg: string): string {
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
 function prompt(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -175,7 +179,7 @@ program
         // Start bridge, then attach
         await bridge.start();
         console.log(chalk.cyan(`\n📺 Attaching to ${sessionName}...\n`));
-        execSync(`tmux attach-session -t ${sessionName}`, { stdio: 'inherit' });
+        execSync(`tmux attach-session -t ${escapeShellArg(sessionName)}`, { stdio: 'inherit' });
       } else {
         await bridge.start();
       }
@@ -392,7 +396,7 @@ program
       // Attach
       if (options.attach !== false) {
         console.log(chalk.cyan(`\n📺 Attaching to ${sessionName}...\n`));
-        execSync(`tmux attach-session -t ${sessionName}`, { stdio: 'inherit' });
+        execSync(`tmux attach-session -t ${escapeShellArg(sessionName)}`, { stdio: 'inherit' });
       } else {
         console.log(chalk.gray(`\n   To attach later: agent-discord attach ${projectName}\n`));
       }
@@ -575,7 +579,7 @@ program
     }
 
     // Replace current process with tmux attach
-    execSync(`tmux attach-session -t ${sessionName}`, { stdio: 'inherit' });
+    execSync(`tmux attach-session -t ${escapeShellArg(sessionName)}`, { stdio: 'inherit' });
   });
 
 // Stop command - stop a project
@@ -593,7 +597,7 @@ program
     // 1. Kill tmux session
     const sessionName = `agent-${projectName}`;
     try {
-      execSync(`tmux kill-session -t ${sessionName}`, { stdio: 'ignore' });
+      execSync(`tmux kill-session -t ${escapeShellArg(sessionName)}`, { stdio: 'ignore' });
       console.log(chalk.green(`✅ tmux session killed: ${sessionName}`));
     } catch {
       console.log(chalk.gray(`   tmux session ${sessionName} not running`));

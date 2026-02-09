@@ -1,223 +1,456 @@
-# discord-agent-bridge
+# Discord Agent Bridge
 
-Discord를 통해 AI 에이전트 CLI (Claude Code, OpenCode, Codex CLI)를 원격으로 모니터링하고 제어하는 브릿지.
+Bridge AI agent CLIs to Discord for remote monitoring and collaboration.
+
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/Tests-129%20passing-brightgreen.svg)](./tests)
+
+## Overview
+
+Discord Agent Bridge connects AI coding assistants (Claude Code, OpenCode, Codex) to Discord, enabling remote monitoring and collaboration. Watch your AI agents work in real-time through Discord channels, share progress with your team, and track multiple projects simultaneously.
+
+The bridge uses a polling-based architecture that captures tmux pane content every 30 seconds, detects state changes, and streams updates to dedicated Discord channels. Each project gets its own channel, and a single global daemon manages all connections efficiently.
 
 ## Features
 
-- Discord 채널에서 AI 에이전트로 메시지 전송
-- 30초 주기 tmux 캡처 폴링으로 에이전트 상태 모니터링
-- 작업 시작/완료 시 자동 Discord 알림
-- 완료 시 최종 응답 전체 전송
-- 프로젝트별 독립적인 Discord 채널
-- 글로벌 데몬으로 여러 프로젝트 동시 관리
-- YOLO 모드: 에이전트 권한 확인 없이 자동 실행
+- **Multi-Agent Support**: Works with Claude Code, OpenCode, and Codex
+- **Auto-Discovery**: Automatically detects installed AI agents on your system
+- **Real-Time Streaming**: Captures tmux output and streams to Discord every 30 seconds
+- **Project Isolation**: Each project gets a dedicated Discord channel
+- **Single Daemon**: One Discord bot connection manages all projects
+- **Session Management**: Persistent tmux sessions survive disconnections
+- **YOLO Mode**: Optional `--dangerously-skip-permissions` flag for agent autonomy
+- **Rich CLI**: Intuitive commands for setup, control, and monitoring
+- **Type-Safe**: Written in TypeScript with dependency injection pattern
+- **Well-Tested**: 129 unit tests with Vitest
 
-## Architecture
+## Prerequisites
 
-```
-Discord                    Bridge Daemon                tmux
-┌──────────┐              ┌──────────────┐             ┌──────────┐
-│ #proj-   │◄─ WebSocket ─►│  Node.js    │─ send-keys ─►│ claude   │
-│  claude  │              │  Daemon     │              │ window   │
-│          │◄─ notify ────│             │              │          │
-│          │              │  Capture    │◄─ capture ───│          │
-│          │              │  Poller     │  pane (30s)  │          │
-└──────────┘              └──────────────┘             └──────────┘
-```
-
-**메시지 흐름:**
-- **Discord → Agent**: 사용자 메시지 → Bridge → tmux send-keys
-- **Agent → Discord**: 30초 폴링으로 tmux pane 캡처 → 변경 감지 → Discord 전송
-
-**설계 원칙:**
-- 의존성 주입(DI) 패턴으로 모든 모듈 테스트 가능
-- 인터페이스 기반 추상화: `IStorage`, `ICommandExecutor`, `IEnvironment`, `IStateManager`, `IProcessManager`
-- 하위 호환성 유지: 기존 싱글톤 export 유지하면서 생성자 DI 지원
+- **Node.js**: Version 18 or higher
+- **tmux**: Version 3.0 or higher
+- **Discord Bot**: Create a bot at [Discord Developer Portal](https://discord.com/developers/applications)
+  - Required permissions: Send Messages, Manage Channels, Read Message History
+  - Required intents: Guilds, GuildMessages, MessageContent
+- **AI Agent**: At least one of:
+  - [Claude Code](https://claude.ai/claude-code) (requires API key)
+  - [OpenCode](https://github.com/OpenCodeAI/opencode) (requires API key)
+  - [Codex](https://github.com/codexai/codex) (requires API key)
 
 ## Installation
 
+### From npm
+
 ```bash
+npm install -g discord-agent-bridge
+```
+
+### From source
+
+```bash
+git clone https://github.com/yourusername/discord-agent-bridge.git
 cd discord-agent-bridge
 npm install
 npm run build
-
-# CLI 전역 등록 (선택)
 npm link
 ```
 
 ## Quick Start
 
-### 1. Discord Bot 설정
-
-1. [Discord Developer Portal](https://discord.com/developers/applications)에서 새 Application 생성
-2. Bot 탭에서 Bot 추가
-3. Bot Token 복사
-4. OAuth2 > URL Generator에서:
-   - Scopes: `bot`
-   - Bot Permissions: `Send Messages`, `Read Message History`, `Manage Channels`, `Add Reactions`
-5. 생성된 URL로 서버에 봇 초대
-
-### 2. 초기 설정
+### 1. Setup Discord Bot
 
 ```bash
-agent-discord setup <YOUR_BOT_TOKEN>
+# One-time setup with your Discord bot token
+agent-discord setup YOUR_DISCORD_BOT_TOKEN
 ```
 
-토큰 저장, 서버 자동 감지, 에이전트 감지를 한 번에 처리합니다.
-
-### 3. 프로젝트 시작
+### 2. Initialize a Project
 
 ```bash
-cd ~/my-project
-agent-discord go claude        # Claude Code로 시작
-agent-discord go opencode      # OpenCode로 시작
-agent-discord go codex         # Codex CLI로 시작
-agent-discord go               # 설치된 에이전트 자동 감지
-agent-discord go --yolo        # YOLO 모드 (권한 확인 건너뜀)
+# Navigate to your project directory
+cd ~/projects/my-app
+
+# Initialize with Claude Code (or 'opencode', 'codex')
+agent-discord init claude "My awesome application"
 ```
 
-`go` 명령 하나로 데몬 시작, 프로젝트 설정, tmux 세션 생성, Discord 채널 생성을 모두 처리합니다.
-
-## Discord 알림 방식
-
-30초마다 tmux 터미널 화면을 캡처하여 변경을 감지합니다:
-
-| 상태 | Discord 알림 |
-|------|-------------|
-| 에이전트 작업 시작 | ⚡ 작업 중... |
-| 에이전트 작업 완료 | 💬 최종 응답 전체 전송 |
-| 세션 종료 | ⏹️ 세션 종료됨 |
-| 변경 없음 | 알림 없음 |
-
-- 변경이 있을 때만 알림 → 메시지 폭탄 없음
-- 프로그램이 꺼져 있으면 → 데몬이 안 돌아가므로 알림 없음
-
-## YOLO 모드
-
-`--yolo` 플래그를 사용하면 에이전트가 권한 확인 없이 자동으로 실행됩니다.
+### 3. Start Working
 
 ```bash
-agent-discord go --yolo           # 자동 감지된 에이전트를 YOLO 모드로 시작
-agent-discord go claude --yolo    # Claude Code를 YOLO 모드로 시작
+# Quick start: daemon + project + attach in one command
+agent-discord go
+
+# Or step-by-step:
+agent-discord daemon start    # Start global daemon
+agent-discord start          # Start this project
+agent-discord attach         # Attach to tmux session
 ```
 
-**동작 방식:**
-- Claude Code: `--dangerously-skip-permissions` 플래그 자동 추가
-- tmux 세션에 `AGENT_DISCORD_YOLO=1` 환경변수 설정
-- 도구 실행 시 사용자 승인 없이 자동 허용
+Your AI agent is now running in tmux, with output streaming to Discord every 30 seconds.
 
-**주의:** YOLO 모드는 에이전트가 파일 수정, 명령 실행 등을 확인 없이 수행합니다. 신뢰할 수 있는 환경에서만 사용하세요.
+## CLI Reference
 
-## CLI Commands
+### Global Commands
 
-| Command | Description |
-|---------|-------------|
-| `agent-discord setup <token>` | 초기 설정 (토큰, 서버, 에이전트 감지) |
-| `agent-discord go [agent]` | 프로젝트 빠른 시작 (데몬+채널+tmux) |
-| `agent-discord init <agent> <desc>` | 프로젝트 초기화 (상세 설정) |
-| `agent-discord start` | 브릿지 서버 시작 (포그라운드) |
-| `agent-discord config` | 설정 관리 |
-| `agent-discord status` | 브릿지 및 프로젝트 상태 확인 |
-| `agent-discord list` | 설정된 프로젝트 목록 |
-| `agent-discord attach [project]` | tmux 세션 연결 |
-| `agent-discord stop [project]` | 프로젝트 중지 (tmux + 채널 삭제) |
-| `agent-discord daemon <start\|stop\|status>` | 글로벌 데몬 관리 |
-| `agent-discord agents` | 지원 에이전트 목록 |
+#### `setup <token>`
 
-## Files
+Configure Discord bot token (one-time setup).
 
-```
-discord-agent-bridge/
-├── bin/agent-discord.ts       # CLI 진입점
-├── src/
-│   ├── index.ts               # 메인 브릿지 서버 (AgentBridge)
-│   ├── daemon.ts              # 글로벌 데몬 매니저
-│   ├── capture/               # tmux 캡처 폴링 시스템
-│   │   ├── poller.ts          # 30초 폴링 루프
-│   │   ├── detector.ts        # 상태 감지 (working/stopped/offline)
-│   │   └── parser.ts          # ANSI 제거, Discord 메시지 분할
-│   ├── discord/               # Discord 클라이언트
-│   ├── tmux/                  # tmux 세션 관리
-│   ├── agents/                # 에이전트 어댑터 (claude, opencode, codex)
-│   ├── state/                 # 프로젝트 상태 관리
-│   ├── config/                # 설정 관리
-│   ├── types/                 # 타입 정의 및 DI 인터페이스
-│   │   ├── index.ts           # 공통 타입
-│   │   └── interfaces.ts      # DI 인터페이스
-│   └── infra/                 # 인프라 구현체
-│       ├── shell.ts           # ShellCommandExecutor (execSync 래퍼)
-│       ├── storage.ts         # FileStorage (fs 래퍼)
-│       └── environment.ts     # SystemEnvironment (process.env 래퍼)
-├── tests/                     # Vitest 단위 테스트
-│   ├── capture/               # parser, detector, poller 테스트
-│   ├── agents/                # 에이전트 어댑터 테스트
-│   ├── discord/               # Discord 클라이언트 테스트
-│   ├── tmux/                  # TmuxManager 테스트
-│   ├── state/                 # StateManager 테스트
-│   ├── config/                # ConfigManager 테스트
-│   ├── daemon.test.ts         # DaemonManager 테스트
-│   └── index.test.ts          # AgentBridge 테스트
-├── vitest.config.ts           # Vitest 설정
-└── dist/                      # 빌드 결과물
-```
-
-## State 저장 위치
-
-- 설정 파일: `~/.discord-agent-bridge/config.json`
-- 프로젝트 상태: `~/.discord-agent-bridge/state.json`
-- 데몬 PID: `~/.discord-agent-bridge/daemon.pid`
-- 데몬 로그: `~/.discord-agent-bridge/daemon.log`
-
-## Troubleshooting
-
-### "Not set up yet" 에러
 ```bash
-agent-discord setup <YOUR_BOT_TOKEN>
+agent-discord setup YOUR_BOT_TOKEN
 ```
 
-### Discord에 알림이 안 옴
-1. 데몬 실행 확인: `agent-discord daemon status`
-2. tmux 세션 확인: `agent-discord status`
-3. 데몬 로그 확인: `cat ~/.discord-agent-bridge/daemon.log`
+#### `daemon <action>`
 
-### tmux 세션을 찾을 수 없음
+Control the global daemon process.
+
 ```bash
-tmux list-sessions
+agent-discord daemon start    # Start daemon
+agent-discord daemon stop     # Stop daemon
+agent-discord daemon restart  # Restart daemon
+agent-discord daemon status   # Check daemon status
+```
+
+#### `list`
+
+List all registered projects.
+
+```bash
+agent-discord list
+```
+
+#### `agents`
+
+List available AI agents detected on your system.
+
+```bash
+agent-discord agents
+```
+
+#### `config <action> [key] [value]`
+
+Manage global configuration.
+
+```bash
+agent-discord config set pollingInterval 45000
+agent-discord config get pollingInterval
+agent-discord config list
+agent-discord config reset
+```
+
+### Project Commands
+
+Run these commands from your project directory after `init`.
+
+#### `init <agent> <description>`
+
+Initialize current directory as a project.
+
+```bash
+agent-discord init claude "Full-stack web application"
+agent-discord init opencode "Data pipeline project"
+```
+
+#### `start [options]`
+
+Start the AI agent for this project.
+
+```bash
+agent-discord start                    # Normal mode
+agent-discord start --yolo            # YOLO mode (skip permissions)
+agent-discord start --dangerously-skip-permissions  # Same as --yolo
+```
+
+#### `stop`
+
+Stop the AI agent for this project.
+
+```bash
+agent-discord stop
+```
+
+#### `status`
+
+Show project status.
+
+```bash
 agent-discord status
+```
+
+#### `attach`
+
+Attach to the tmux session for this project.
+
+```bash
+agent-discord attach
+```
+
+Press `Ctrl-b d` to detach from tmux without stopping the agent.
+
+#### `go [options]`
+
+Quick start: start daemon, start project, and attach.
+
+```bash
+agent-discord go              # Normal mode
+agent-discord go --yolo      # YOLO mode
+```
+
+## How It Works
+
+### Architecture
+
+```
+┌─────────────────┐
+│  AI Agent CLI   │  (Claude, OpenCode, Codex)
+│  Running in     │
+│  tmux session   │
+└────────┬────────┘
+         │
+         │ tmux capture-pane (every 30s)
+         │
+    ┌────▼─────────────┐
+    │  CapturePoller   │  Detects state changes
+    └────┬─────────────┘
+         │
+         │ Discord.js
+         │
+    ┌────▼──────────────┐
+    │  Discord Channel  │  #project-name
+    └───────────────────┘
+```
+
+### Components
+
+- **Daemon Manager**: Single global process managing Discord connection
+- **Capture Poller**: Polls tmux panes every 30s, detects changes, sends to Discord
+- **Agent Registry**: Factory pattern for multi-agent support (Claude, OpenCode, Codex)
+- **State Manager**: Tracks project state, sessions, and channels
+- **Dependency Injection**: Interfaces for storage, execution, environment (testable, mockable)
+
+### Polling Model
+
+The bridge uses a **polling-based** architecture instead of hooks:
+
+1. Every 30 seconds (configurable), the poller runs `tmux capture-pane`
+2. Compares captured content with previous snapshot
+3. If changes detected, sends new content to Discord
+4. Handles multi-line output, ANSI codes, and rate limiting
+
+This approach is simpler and more reliable than hook-based systems, with minimal performance impact.
+
+### Project Lifecycle
+
+1. **Init**: Creates `.agent-discord.json` with project metadata
+2. **Start**: Launches AI agent in a named tmux session
+3. **Polling**: Daemon captures tmux output and streams to Discord
+4. **Stop**: Terminates tmux session and cleans up
+5. **Attach**: User can join tmux session to interact directly
+
+## Supported Agents
+
+| Agent | Binary | Auto-Detect | YOLO Support | Notes |
+|-------|--------|-------------|--------------|-------|
+| **Claude Code** | `claude-code` | Yes | Yes | Official Anthropic CLI |
+| **OpenCode** | `opencode` | Yes | Yes | Open-source alternative |
+| **Codex** | `codex` | Yes | Yes | Legacy agent support |
+
+### Agent Detection
+
+The CLI automatically detects installed agents using `which <binary>`. Run `agent-discord agents` to see available agents on your system.
+
+### Adding Custom Agents
+
+To add a new agent, implement the `AgentAdapter` interface in `src/agents/`:
+
+```typescript
+export interface AgentAdapter {
+  name: string;
+  detect(): Promise<boolean>;
+  getCommand(projectPath: string, yolo: boolean): string[];
+}
+```
+
+Register your adapter in `src/agents/index.ts`.
+
+## Configuration
+
+### Global Config
+
+Stored in `~/.agent-discord/config.json`:
+
+```json
+{
+  "discordToken": "YOUR_BOT_TOKEN",
+  "pollingInterval": 30000,
+  "maxMessageLength": 1900
+}
+```
+
+Edit via:
+
+```bash
+agent-discord config set pollingInterval 45000
+agent-discord config get pollingInterval
+```
+
+### Project Config
+
+Stored in `.agent-discord.json` (per project):
+
+```json
+{
+  "agent": "claude",
+  "description": "My project description",
+  "channelId": "1234567890",
+  "sessionName": "agent-discord-my-project-abc123"
+}
+```
+
+**Do not commit** `.agent-discord.json` to version control (add to `.gitignore`).
+
+### Environment Variables
+
+Override config with environment variables:
+
+```bash
+AGENT_DISCORD_TOKEN=token agent-discord daemon start
+AGENT_DISCORD_POLLING_INTERVAL=60000 agent-discord go
 ```
 
 ## Development
 
+### Building
+
 ```bash
-npm run dev          # tsx로 개발 모드 실행
-npm run build        # tsup으로 빌드
-npm run typecheck    # TypeScript 타입 체크
-npm test             # Vitest 단위 테스트 (129개)
-npm run test:watch   # 테스트 워치 모드
-npm run test:coverage # 테스트 커버리지
+npm install
+npm run build          # Compile TypeScript
+npm run build:watch    # Watch mode
 ```
 
 ### Testing
 
-Vitest 기반 129개 단위 테스트:
+```bash
+npm test              # Run all tests
+npm run test:watch    # Watch mode
+npm run test:coverage # Coverage report
+```
 
-| 테스트 파일 | 테스트 수 | 대상 |
-|------------|----------|------|
-| capture/parser | 21 | stripAnsi, cleanCapture, splitForDiscord |
-| capture/detector | 5 | detectState |
-| capture/poller | 12 | CapturePoller 폴링 로직 |
-| agents/base | 7 | AgentRegistry |
-| agents/claude | 5 | ClaudeAdapter |
-| agents/adapters | 4 | OpenCode, Codex |
-| tmux/manager | 17 | TmuxManager |
-| state/index | 13 | StateManager |
-| config/index | 10 | ConfigManager |
-| discord/client | 10 | DiscordClient |
-| daemon | 12 | DaemonManager |
-| index | 13 | AgentBridge |
+Test suite includes 129 tests covering:
+- Agent adapters
+- State management
+- Discord client
+- Capture polling
+- CLI commands
+- Storage and execution mocks
 
-모든 모듈은 DI 패턴으로 Mock 주입이 가능하여 외부 의존성 없이 테스트됩니다.
+### Project Structure
+
+```
+discord-agent-bridge/
+├── src/
+│   ├── agents/           # Agent adapters (Claude, OpenCode, Codex)
+│   ├── core/             # Core logic (daemon, poller, state)
+│   ├── infra/            # Infrastructure (storage, shell, env)
+│   ├── types/            # TypeScript interfaces
+│   ├── cli/              # CLI commands
+│   └── bin/              # Entry points
+├── tests/                # Vitest test suite
+├── package.json
+└── tsconfig.json
+```
+
+### Dependency Injection
+
+The codebase uses constructor injection with interfaces for testability:
+
+```typescript
+// Interfaces
+interface IStorage { readFile, writeFile, exists, unlink }
+interface ICommandExecutor { execute }
+interface IEnvironment { getEnv, getCwd, getHomeDir }
+
+// Usage
+class DaemonManager {
+  constructor(
+    private storage: IStorage = new FileStorage(),
+    private executor: ICommandExecutor = new ShellExecutor()
+  ) {}
+}
+
+// Testing
+const mockStorage = new MockStorage();
+const daemon = new DaemonManager(mockStorage);
+```
+
+### Code Quality
+
+- TypeScript strict mode enabled
+- ESM modules with `.js` extensions in imports
+- Vitest with 129 passing tests
+- No unused locals/parameters (enforced by `tsconfig.json`)
+
+## Troubleshooting
+
+### Bot not connecting
+
+1. Verify token: `agent-discord config get discordToken`
+2. Check bot permissions in Discord Developer Portal
+3. Ensure MessageContent intent is enabled
+4. Restart daemon: `agent-discord daemon restart`
+
+### Agent not detected
+
+1. Run `agent-discord agents` to see available agents
+2. Verify agent binary is in PATH: `which claude-code`
+3. Install missing agent and retry
+
+### tmux session issues
+
+1. Check session exists: `tmux ls`
+2. Kill stale session: `tmux kill-session -t <session-name>`
+3. Restart project: `agent-discord stop && agent-discord start`
+
+### No messages in Discord
+
+1. Check daemon status: `agent-discord daemon status`
+2. Verify polling interval: `agent-discord config get pollingInterval`
+3. Check Discord channel permissions (bot needs Send Messages)
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Guidelines
+
+- Add tests for new features
+- Maintain TypeScript strict mode compliance
+- Follow existing code style
+- Update documentation as needed
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Built with [Discord.js](https://discord.js.org/)
+- Powered by [Claude Code](https://claude.ai/claude-code), [OpenCode](https://github.com/OpenCodeAI/opencode), and [Codex](https://github.com/codexai/codex)
+- Inspired by the need for remote AI agent monitoring and collaboration
+
+## Support
+
+- Issues: [GitHub Issues](https://github.com/yourusername/discord-agent-bridge/issues)
+- Discussions: [GitHub Discussions](https://github.com/yourusername/discord-agent-bridge/discussions)
+- Documentation: [Wiki](https://github.com/yourusername/discord-agent-bridge/wiki)
+
+---
+
+**Made with ❤️ for the AI coding community**

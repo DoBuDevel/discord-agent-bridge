@@ -2,7 +2,7 @@
  * Default IStorage implementation using Node.js fs
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, openSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, openSync, chmodSync } from 'fs';
 import type { IStorage } from '../types/interfaces.js';
 
 export class FileStorage implements IStorage {
@@ -12,6 +12,10 @@ export class FileStorage implements IStorage {
 
   writeFile(path: string, data: string): void {
     writeFileSync(path, data);
+  }
+
+  chmod(path: string, mode: number): void {
+    chmodSync(path, mode);
   }
 
   exists(path: string): boolean {

@@ -3,4 +3,7 @@ dist/
 .omc/
 .claude/
 *.log
-.env
+.env*
+.DS_Store
+coverage/
+*.tgz
