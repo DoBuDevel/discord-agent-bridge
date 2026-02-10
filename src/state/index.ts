@@ -12,6 +12,9 @@ export interface ProjectState {
   projectName: string;
   projectPath: string;
   tmuxSession: string;
+  tmuxWindows?: {
+    [agentType: string]: string | undefined;  // agentType -> window name (optional, legacy default is agentType)
+  };
   discordChannels: {
     [agentType: string]: string | undefined;  // agentType -> channel ID
   };

@@ -29,6 +29,17 @@ export interface BridgeConfig {
   discord: DiscordConfig;
   tmux: {
     sessionPrefix: string;
+    /**
+     * Session naming strategy.
+     * - 'per-project' (default): one tmux session per project (current behavior).
+     * - 'shared': one shared tmux session, one window per project/agent.
+     */
+    sessionMode?: 'per-project' | 'shared';
+    /**
+     * Used when sessionMode === 'shared'. Name without prefix.
+     * Full session name becomes `${sessionPrefix}${sharedSessionName}`.
+     */
+    sharedSessionName?: string;
   };
   hookServerPort?: number;
 }
@@ -41,6 +52,13 @@ export interface ProjectState {
   projectName: string;
   projectPath: string;
   tmuxSession: string;
+  /**
+   * Optional mapping from agentType -> tmux window name.
+   * If omitted, agentType is treated as the window name (legacy behavior).
+   */
+  tmuxWindows?: {
+    [agentType: string]: string | undefined;
+  };
   discordChannels: {
     [agentType: string]: string | undefined;
   };

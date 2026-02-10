@@ -244,7 +244,7 @@ describe('CapturePoller', () => {
 
     const poller = new CapturePoller(tmux, discord, 30000, stateManager);
 
-    await expect((poller as any).pollAll()).resolves.not.toThrow();
+    await expect((poller as any).pollAll()).resolves.toBeUndefined();
     expect(tmux.capturePaneFromWindow).not.toHaveBeenCalled();
   });
 

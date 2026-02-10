@@ -365,11 +365,21 @@ agent-discord config --port 18470          # 훅 서버 포트 설정
 | `DISCORD_GUILD_ID` | **필수** (config.json에 없는 경우) | Discord 서버 ID | - |
 | `DISCORD_CHANNEL_ID` | 선택 | 기본 채널 덮어쓰기 | 프로젝트별 자동 생성 |
 | `TMUX_SESSION_PREFIX` | 선택 | tmux 세션 이름 접두사 | `agent-` |
+| `TMUX_SESSION_MODE` | 선택 | tmux 세션 모드: `per-project`(기본) 또는 `shared` | `per-project` |
+| `TMUX_SHARED_SESSION_NAME` | 선택 | 공유 tmux 세션 이름(접두사 제외), `TMUX_SESSION_MODE=shared`일 때 사용 | `bridge` |
 | `HOOK_SERVER_PORT` | 선택 | 훅 서버 포트 | `18470` |
 
 ```bash
 DISCORD_BOT_TOKEN=token agent-discord daemon start
 DISCORD_GUILD_ID=server_id agent-discord go
+```
+
+### tmux 세션 모드 (CLI)
+
+환경변수 없이 실행 인자로도 tmux 세션 동작을 오버라이드할 수 있습니다:
+
+```bash
+agent-discord go --tmux-session-mode shared --tmux-shared-session-name bridge
 ```
 
 ## 개발

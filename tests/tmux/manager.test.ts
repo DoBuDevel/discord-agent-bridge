@@ -164,8 +164,8 @@ describe('TmuxManager', () => {
       tmux.createWindow('agent-session', 'my-window');
 
       const lastCommand = executor.getLastCommand();
-      expect(lastCommand).toContain('tmux new-window -t agent-session -n');
-      expect(lastCommand).toContain('my-window');
+      expect(lastCommand).toContain("tmux new-window -t 'agent-session' -n");
+      expect(lastCommand).toContain("'my-window'");
     });
   });
 
@@ -176,7 +176,7 @@ describe('TmuxManager', () => {
       const windows = tmux.listWindows('agent-session');
 
       expect(windows).toEqual(['window1', 'window2', 'window3']);
-      expect(executor.getLastCommand()).toContain('tmux list-windows -t agent-session');
+      expect(executor.getLastCommand()).toContain("tmux list-windows -t 'agent-session'");
     });
   });
 
@@ -185,9 +185,9 @@ describe('TmuxManager', () => {
       tmux.sendKeysToWindow('agent-session', 'window1', 'echo hello');
 
       expect(executor.calls).toHaveLength(2);
-      expect(executor.calls[0].command).toContain('tmux send-keys -t agent-session:window1');
+      expect(executor.calls[0].command).toContain("tmux send-keys -t 'agent-session:window1'");
       expect(executor.calls[0].command).toContain('echo hello');
-      expect(executor.calls[1].command).toContain('tmux send-keys -t agent-session:window1 Enter');
+      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:window1' Enter");
     });
 
     it('escapes keys with single quotes', () => {
@@ -202,7 +202,7 @@ describe('TmuxManager', () => {
     it('types keys without sending Enter', () => {
       tmux.typeKeysToWindow('agent-session', 'codex', 'hello');
       expect(executor.calls).toHaveLength(1);
-      expect(executor.calls[0].command).toContain('tmux send-keys -t agent-session:codex');
+      expect(executor.calls[0].command).toContain("tmux send-keys -t 'agent-session:codex'");
       expect(executor.calls[0].command).toContain('hello');
       expect(executor.calls[0].command).not.toContain(' Enter');
     });
@@ -212,7 +212,7 @@ describe('TmuxManager', () => {
     it('sends Enter to the specified window', () => {
       tmux.sendEnterToWindow('agent-session', 'codex');
       expect(executor.calls).toHaveLength(1);
-      expect(executor.calls[0].command).toContain('tmux send-keys -t agent-session:codex Enter');
+      expect(executor.calls[0].command).toContain("tmux send-keys -t 'agent-session:codex' Enter");
     });
   });
 
@@ -223,7 +223,7 @@ describe('TmuxManager', () => {
       const output = tmux.capturePaneFromWindow('agent-session', 'window1');
 
       expect(output).toBe('pane output line 1\npane output line 2');
-      expect(executor.getLastCommand()).toContain('tmux capture-pane -t agent-session:window1 -p');
+      expect(executor.getLastCommand()).toContain("tmux capture-pane -t 'agent-session:window1' -p");
     });
   });
 
@@ -232,7 +232,7 @@ describe('TmuxManager', () => {
       tmux.setSessionEnv('agent-session', 'MY_VAR', 'my value');
 
       const lastCommand = executor.getLastCommand();
-      expect(lastCommand).toContain('tmux set-environment -t agent-session');
+      expect(lastCommand).toContain("tmux set-environment -t 'agent-session'");
       expect(lastCommand).toContain("'MY_VAR'");
       expect(lastCommand).toContain("'my value'");
     });

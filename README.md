@@ -366,11 +366,21 @@ Config values can be overridden with environment variables:
 | `DISCORD_GUILD_ID` | **Yes** (if not in config.json) | Discord server ID | - |
 | `DISCORD_CHANNEL_ID` | No | Override default channel | Auto-created per project |
 | `TMUX_SESSION_PREFIX` | No | Prefix for tmux session names | `agent-` |
+| `TMUX_SESSION_MODE` | No | tmux session mode: `per-project` (default) or `shared` | `per-project` |
+| `TMUX_SHARED_SESSION_NAME` | No | Shared tmux session name (without prefix), used when `TMUX_SESSION_MODE=shared` | `bridge` |
 | `HOOK_SERVER_PORT` | No | Port for the hook server | `18470` |
 
 ```bash
 DISCORD_BOT_TOKEN=token agent-discord daemon start
 DISCORD_GUILD_ID=server_id agent-discord go
+```
+
+### tmux Session Mode (CLI)
+
+You can also override tmux session behavior via CLI flags (no env vars needed):
+
+```bash
+agent-discord go --tmux-session-mode shared --tmux-shared-session-name bridge
 ```
 
 ## Development

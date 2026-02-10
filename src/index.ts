@@ -14,6 +14,7 @@ import { parse } from 'url';
 import type { ProjectAgents } from './types/index.js';
 import type { IStateManager } from './types/interfaces.js';
 import type { BridgeConfig } from './types/index.js';
+import { escapeShellArg } from './infra/shell-escape.js';
 
 export interface AgentBridgeDeps {
   discord?: DiscordClient;
@@ -37,7 +38,7 @@ export class AgentBridge {
   constructor(deps?: AgentBridgeDeps) {
     this.bridgeConfig = deps?.config || defaultConfig;
     this.discord = deps?.discord || new DiscordClient(this.bridgeConfig.discord.token);
-    this.tmux = deps?.tmux || new TmuxManager('agent-');
+    this.tmux = deps?.tmux || new TmuxManager(this.bridgeConfig.tmux.sessionPrefix);
     this.stateManager = deps?.stateManager || defaultStateManager;
     this.registry = deps?.registry || defaultAgentRegistry;
     this.codexSubmitter = deps?.codexSubmitter || new CodexSubmitter(this.tmux);
@@ -119,9 +120,10 @@ export class AgentBridge {
       await this.discord.sendToChannel(channelId, `**${agentDisplayName}** - 📨 받은 메시지: \`${preview}\``);
 
       // Send to tmux
+      const windowName = project.tmuxWindows?.[agentType] || agentType;
       try {
         if (agentType === 'codex') {
-          const ok = await this.codexSubmitter.submit(project.tmuxSession, sanitized);
+          const ok = await this.codexSubmitter.submit(project.tmuxSession, windowName, sanitized);
           if (!ok) {
             await this.discord.sendToChannel(
               channelId,
@@ -130,7 +132,7 @@ export class AgentBridge {
             );
           }
         } else {
-          this.tmux.sendKeysToWindow(project.tmuxSession, agentType, sanitized);
+          this.tmux.sendKeysToWindow(project.tmuxSession, windowName, sanitized);
         }
       } catch (error) {
         await this.discord.sendToChannel(
@@ -224,8 +226,13 @@ export class AgentBridge {
       throw new Error('Server ID not configured. Run: agent-discord config --server <id>');
     }
 
-    // Create tmux session
-    const tmuxSession = this.tmux.getOrCreateSession(projectName);
+    // Create tmux session (default: per-project, optional: shared session)
+    const sessionMode = this.bridgeConfig.tmux.sessionMode || 'per-project';
+    const sharedSessionName = this.bridgeConfig.tmux.sharedSessionName || 'bridge';
+    const tmuxSession =
+      sessionMode === 'shared'
+        ? this.tmux.getOrCreateSession(sharedSessionName)
+        : this.tmux.getOrCreateSession(projectName);
 
     // Collect enabled agents (should be only one)
     const enabledAgents = this.registry.getAll().filter(a => agents[a.config.name]);
@@ -246,33 +253,41 @@ export class AgentBridge {
 
     const channelId = channels[adapter.config.name];
 
-    // Set environment variables on the tmux session
     const port = overridePort || this.bridgeConfig.hookServerPort || 18470;
-    this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PROJECT', projectName);
+    // Legacy behavior: set env on per-project sessions so new windows inherit it.
+    // For shared sessions, avoid setting AGENT_DISCORD_PROJECT on the session (ambiguous across windows).
+    if (sessionMode !== 'shared') {
+      this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PROJECT', projectName);
+    }
     this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PORT', String(port));
-    if (yolo) {
-      this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_YOLO', '1');
-    }
-    if (sandbox) {
-      this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_SANDBOX', '1');
-    }
 
     // Start agent in tmux window
     const discordChannels: { [key: string]: string | undefined } = {
       [adapter.config.name]: channelId,
     };
 
-    this.tmux.startAgentInWindow(
-      tmuxSession,
-      adapter.config.name,
-      adapter.getStartCommand(projectPath, yolo, sandbox)
-    );
+    const windowName =
+      sessionMode === 'shared'
+        ? this.toSharedWindowName(projectName, adapter.config.name)
+        : adapter.config.name;
+
+    const exportPrefix = this.buildExportPrefix({
+      AGENT_DISCORD_PROJECT: projectName,
+      AGENT_DISCORD_PORT: String(port),
+      ...(yolo ? { AGENT_DISCORD_YOLO: '1' } : {}),
+      ...(sandbox ? { AGENT_DISCORD_SANDBOX: '1' } : {}),
+    });
+
+    this.tmux.startAgentInWindow(tmuxSession, windowName, `${exportPrefix}${adapter.getStartCommand(projectPath, yolo, sandbox)}`);
 
     // Save state
     const projectState = {
       projectName,
       projectPath,
       tmuxSession,
+      tmuxWindows: {
+        [adapter.config.name]: windowName,
+      },
       discordChannels,
       agents,
       createdAt: new Date(),
@@ -286,6 +301,28 @@ export class AgentBridge {
       agentName: adapter.config.displayName,
       tmuxSession,
     };
+  }
+
+  private toSharedWindowName(projectName: string, agentType: string): string {
+    // Target strings are interpolated into `session:window` and passed to tmux.
+    // Keep window names simple (avoid ':' which would break target parsing).
+    const raw = `${projectName}-${agentType}`;
+    const safe = raw
+      .replace(/[:\n\r\t]/g, '-')
+      .replace(/[^a-zA-Z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80);
+    return safe.length > 0 ? safe : agentType;
+  }
+
+  private buildExportPrefix(env: Record<string, string | undefined>): string {
+    const parts: string[] = [];
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) continue;
+      parts.push(`export ${key}=${escapeShellArg(value)}`);
+    }
+    return parts.length > 0 ? parts.join('; ') + '; ' : '';
   }
 
   async stop(): Promise<void> {

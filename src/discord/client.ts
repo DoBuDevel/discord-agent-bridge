@@ -16,7 +16,7 @@ import {
 import type { AgentMessage } from '../types/index.js';
 import { agentRegistry as defaultAgentRegistry, type AgentConfig, type AgentRegistry } from '../agents/index.js';
 
-type MessageCallback = (agentType: string, content: string, projectName: string, channelId: string) => void;
+type MessageCallback = (agentType: string, content: string, projectName: string, channelId: string) => void | Promise<void>;
 
 interface ChannelInfo {
   projectName: string;
@@ -65,7 +65,14 @@ export class DiscordClient {
 
       const channelInfo = this.channelMapping.get(message.channelId);
       if (channelInfo && this.messageCallback) {
-        this.messageCallback(channelInfo.agentType, message.content, channelInfo.projectName, message.channelId);
+        try {
+          await this.messageCallback(channelInfo.agentType, message.content, channelInfo.projectName, message.channelId);
+        } catch (error) {
+          console.error(
+            `Discord message handler error [${channelInfo.projectName}/${channelInfo.agentType}] channel=${message.channelId}:`,
+            error
+          );
+        }
       }
     });
   }

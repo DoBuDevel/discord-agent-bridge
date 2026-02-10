@@ -1439,6 +1439,8 @@ npm link             # 글로벌 agent-discord 명령어 등록
 | `DISCORD_CHANNEL_ID` | 없음 | (현재 미사용) |
 | `HOOK_SERVER_PORT` | 18470 | 훅 서버 포트 |
 | `TMUX_SESSION_PREFIX` | "agent-" | tmux 세션 접두사 |
+| `TMUX_SESSION_MODE` | "per-project" | tmux 세션 모드 (`per-project` 또는 `shared`) |
+| `TMUX_SHARED_SESSION_NAME` | "bridge" | 공유 tmux 세션 이름(접두사 제외), `TMUX_SESSION_MODE=shared`일 때 사용 |
 | `AGENT_DISCORD_PROJECT` | 없음 | 프로젝트명 (tmux에서만) |
 | `AGENT_DISCORD_PORT` | 없음 | 훅 서버 포트 (tmux에서만) |
 | `AGENT_DISCORD_YOLO` | 없음 | YOLO 모드 플래그 (tmux에서만) |

@@ -16,9 +16,42 @@ import { basename, resolve } from 'path';
 import { execSync } from 'child_process';
 import { createInterface } from 'readline';
 import chalk from 'chalk';
+import type { BridgeConfig } from '../src/types/index.js';
 
 function escapeShellArg(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+function applyTmuxCliOverrides(base: BridgeConfig, options: any): BridgeConfig {
+  // NOTE: `config` comes from src/config via a Proxy (lazy getter). Do not spread it.
+  // Access properties explicitly so the Proxy's `get` trap is used.
+  const baseDiscord = base.discord;
+  const baseTmux = base.tmux;
+  const baseHookPort = base.hookServerPort;
+
+  const modeRaw = options?.tmuxSessionMode as string | undefined;
+  const sharedNameRaw = options?.tmuxSharedSessionName as string | undefined;
+
+  let mode: BridgeConfig['tmux']['sessionMode'] | undefined = undefined;
+  if (modeRaw !== undefined) {
+    if (modeRaw === 'per-project' || modeRaw === 'shared') {
+      mode = modeRaw;
+    } else {
+      console.error(chalk.red(`Invalid --tmux-session-mode: ${modeRaw}`));
+      console.error(chalk.gray(`Valid values: per-project, shared`));
+      process.exit(1);
+    }
+  }
+
+  return {
+    discord: baseDiscord,
+    hookServerPort: baseHookPort,
+    tmux: {
+      ...baseTmux,
+      ...(mode !== undefined ? { sessionMode: mode } : {}),
+      ...(sharedNameRaw !== undefined ? { sharedSessionName: sharedNameRaw } : {}),
+    },
+  };
 }
 
 function prompt(question: string): Promise<string> {
@@ -121,9 +154,12 @@ program
   .description('Start the Discord bridge server')
   .option('-p, --project <name>', 'Start for specific project only')
   .option('-a, --attach', 'Attach to tmux session after starting (requires --project)')
+  .option('--tmux-session-mode <mode>', 'tmux session mode: per-project (default) or shared')
+  .option('--tmux-shared-session-name <name>', 'shared tmux session name (without prefix) when using shared mode')
   .action(async (options) => {
     try {
       validateConfig();
+      const effectiveConfig = applyTmuxCliOverrides(config, options);
 
       const projects = stateManager.listProjects();
 
@@ -169,17 +205,20 @@ program
       }
       console.log('');
 
-      const bridge = new AgentBridge();
+      const bridge = new AgentBridge({ config: effectiveConfig });
 
       // If --attach, start bridge in background and attach to tmux
       if (options.attach) {
         const project = activeProjects[0];
-        const sessionName = `agent-${project.projectName}`;
+        const sessionName = project.tmuxSession;
+        const agentType = Object.entries(project.agents).find(([_, enabled]) => enabled)?.[0];
+        const windowName = agentType ? (project.tmuxWindows?.[agentType] || agentType) : undefined;
+        const attachTarget = windowName ? `${sessionName}:${windowName}` : sessionName;
 
         // Start bridge, then attach
         await bridge.start();
-        console.log(chalk.cyan(`\n📺 Attaching to ${sessionName}...\n`));
-        execSync(`tmux attach-session -t ${escapeShellArg(sessionName)}`, { stdio: 'inherit' });
+        console.log(chalk.cyan(`\n📺 Attaching to ${attachTarget}...\n`));
+        execSync(`tmux attach-session -t ${escapeShellArg(attachTarget)}`, { stdio: 'inherit' });
       } else {
         await bridge.start();
       }
@@ -196,9 +235,12 @@ program
   .argument('<agent>', 'Agent to use (claude, codex, or opencode)')
   .argument('<description>', 'Channel description (e.g., "내 프로젝트 작업")')
   .option('-n, --name <name>', 'Project name (defaults to directory name)')
+  .option('--tmux-session-mode <mode>', 'tmux session mode: per-project (default) or shared')
+  .option('--tmux-shared-session-name <name>', 'shared tmux session name (without prefix) when using shared mode')
   .action(async (agentName: string, description: string, options) => {
     try {
       validateConfig();
+      const effectiveConfig = applyTmuxCliOverrides(config, options);
 
       // Check server ID
       if (!stateManager.getGuildId()) {
@@ -226,7 +268,7 @@ program
 
       console.log(chalk.cyan(`\n📦 Initializing project: ${projectName}\n`));
 
-      const bridge = new AgentBridge();
+      const bridge = new AgentBridge({ config: effectiveConfig });
       console.log(chalk.gray('   Connecting to Discord...'));
       await bridge.connect();
 
@@ -265,9 +307,12 @@ program
   .option('--no-attach', 'Do not attach to tmux session')
   .option('--yolo', 'YOLO mode: run agent with --dangerously-skip-permissions (no approval needed)')
   .option('--sandbox', 'Sandbox mode: run Claude Code in a sandboxed Docker container')
+  .option('--tmux-session-mode <mode>', 'tmux session mode: per-project (default) or shared')
+  .option('--tmux-shared-session-name <name>', 'shared tmux session name (without prefix) when using shared mode')
   .action(async (agentArg: string | undefined, options) => {
     try {
       validateConfig();
+      const effectiveConfig = applyTmuxCliOverrides(config, options);
 
       if (!stateManager.getGuildId()) {
         console.error(chalk.red('Not set up yet. Run: agent-discord setup <token>'));
@@ -341,7 +386,7 @@ program
         console.log(chalk.green(`✅ Bridge daemon already running (port ${port})`));
       }
 
-      const tmux = new TmuxManager('agent-');
+      const tmux = new TmuxManager(effectiveConfig.tmux.sessionPrefix);
       const yolo = !!options.yolo;
       const sandbox = !!options.sandbox;
 
@@ -355,7 +400,7 @@ program
       if (!existingProject) {
         // New project: full setup via bridge
         console.log(chalk.gray('   Setting up new project...'));
-        const bridge = new AgentBridge();
+        const bridge = new AgentBridge({ config: effectiveConfig });
         await bridge.connect();
 
         const adapter = agentRegistry.get(agentName)!;
@@ -379,22 +424,25 @@ program
           });
         } catch { /* daemon will pick up on next restart */ }
       } else {
-        // Existing project: just ensure tmux session exists
-        const tmuxSession = tmux.getOrCreateSession(projectName);
-        // Set env vars on existing session too
-        tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PROJECT', projectName);
-        tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PORT', String(port));
-        if (yolo) {
-          tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_YOLO', '1');
+        // Existing project: ensure tmux session exists (use stored full session name)
+        const fullSessionName = existingProject.tmuxSession;
+        const prefix = effectiveConfig.tmux.sessionPrefix;
+        if (fullSessionName.startsWith(prefix)) {
+          tmux.getOrCreateSession(fullSessionName.slice(prefix.length));
         }
-        if (sandbox) {
-          tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_SANDBOX', '1');
+        // Keep legacy port env on per-project sessions; avoid setting per-project env on shared sessions.
+        const sharedFull = `${prefix}${effectiveConfig.tmux.sharedSessionName || 'bridge'}`;
+        const isSharedSession = fullSessionName === sharedFull;
+        if (!isSharedSession) {
+          tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PROJECT', projectName);
         }
+        tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PORT', String(port));
         console.log(chalk.green(`✅ Existing project resumed`));
       }
 
       // Summary
-      const sessionName = `agent-${projectName}`;
+      const projectState = stateManager.getProject(projectName);
+      const sessionName = projectState?.tmuxSession || `${effectiveConfig.tmux.sessionPrefix}${projectName}`;
       console.log(chalk.cyan('\n✨ Ready!\n'));
       console.log(chalk.gray(`   Project:  ${projectName}`));
       console.log(chalk.gray(`   Session:  ${sessionName}`));
@@ -403,8 +451,10 @@ program
 
       // Attach
       if (options.attach !== false) {
-        console.log(chalk.cyan(`\n📺 Attaching to ${sessionName}...\n`));
-        execSync(`tmux attach-session -t ${escapeShellArg(sessionName)}`, { stdio: 'inherit' });
+        const windowName = projectState?.tmuxWindows?.[agentName] || agentName;
+        const attachTarget = `${sessionName}:${windowName}`;
+        console.log(chalk.cyan(`\n📺 Attaching to ${attachTarget}...\n`));
+        execSync(`tmux attach-session -t ${escapeShellArg(attachTarget)}`, { stdio: 'inherit' });
       } else {
         console.log(chalk.gray(`\n   To attach later: agent-discord attach ${projectName}\n`));
       }
@@ -472,9 +522,12 @@ program
 program
   .command('status')
   .description('Show bridge and project status')
-  .action(() => {
+  .option('--tmux-session-mode <mode>', 'tmux session mode: per-project (default) or shared')
+  .option('--tmux-shared-session-name <name>', 'shared tmux session name (without prefix) when using shared mode')
+  .action((options) => {
+    const effectiveConfig = applyTmuxCliOverrides(config, options);
     const projects = stateManager.listProjects();
-    const tmux = new TmuxManager('agent-');
+    const tmux = new TmuxManager(effectiveConfig.tmux.sessionPrefix);
     const sessions = tmux.listSessions();
 
     console.log(chalk.cyan('\n📊 Discord Agent Bridge Status\n'));
@@ -566,17 +619,26 @@ program
 program
   .command('attach [project]')
   .description('Attach to a project tmux session')
-  .action((projectName?: string) => {
-    const tmux = new TmuxManager('agent-');
+  .option('--tmux-session-mode <mode>', 'tmux session mode: per-project (default) or shared')
+  .option('--tmux-shared-session-name <name>', 'shared tmux session name (without prefix) when using shared mode')
+  .action((projectName: string | undefined, options) => {
+    const effectiveConfig = applyTmuxCliOverrides(config, options);
+    const tmux = new TmuxManager(effectiveConfig.tmux.sessionPrefix);
 
     if (!projectName) {
       // Use current directory name
       projectName = basename(process.cwd());
     }
 
-    const sessionName = `agent-${projectName}`;
+    const project = stateManager.getProject(projectName);
+    const sessionName = project?.tmuxSession || `${effectiveConfig.tmux.sessionPrefix}${projectName}`;
+    const agentType = project
+      ? Object.entries(project.agents).find(([_, enabled]) => enabled)?.[0]
+      : undefined;
+    const windowName = agentType ? (project?.tmuxWindows?.[agentType] || agentType) : undefined;
+    const attachTarget = windowName ? `${sessionName}:${windowName}` : sessionName;
 
-    if (!tmux.sessionExists(projectName)) {
+    if (!tmux.sessionExistsFull(sessionName)) {
       console.error(chalk.red(`Session ${sessionName} not found`));
       console.log(chalk.gray('Available sessions:'));
       const sessions = tmux.listSessions();
@@ -587,7 +649,7 @@ program
     }
 
     // Replace current process with tmux attach
-    execSync(`tmux attach-session -t ${escapeShellArg(sessionName)}`, { stdio: 'inherit' });
+    execSync(`tmux attach-session -t ${escapeShellArg(attachTarget)}`, { stdio: 'inherit' });
   });
 
 // Stop command - stop a project
@@ -595,6 +657,8 @@ program
   .command('stop [project]')
   .description('Stop a project (kills tmux session, deletes Discord channel)')
   .option('--keep-channel', 'Keep Discord channel (only kill tmux)')
+  .option('--tmux-session-mode <mode>', 'tmux session mode: per-project (default) or shared')
+  .option('--tmux-shared-session-name <name>', 'shared tmux session name (without prefix) when using shared mode')
   .action(async (projectName: string | undefined, options) => {
     if (!projectName) {
       projectName = basename(process.cwd());
@@ -602,17 +666,45 @@ program
 
     console.log(chalk.cyan(`\n🛑 Stopping project: ${projectName}\n`));
 
-    // 1. Kill tmux session
-    const sessionName = `agent-${projectName}`;
-    try {
-      execSync(`tmux kill-session -t ${escapeShellArg(sessionName)}`, { stdio: 'ignore' });
-      console.log(chalk.green(`✅ tmux session killed: ${sessionName}`));
-    } catch {
-      console.log(chalk.gray(`   tmux session ${sessionName} not running`));
+    const project = stateManager.getProject(projectName);
+    const effectiveConfig = applyTmuxCliOverrides(config, options);
+
+    // 1. Kill tmux (session in per-project mode, windows in shared/non-dedicated mode)
+    const prefix = effectiveConfig.tmux.sessionPrefix;
+    const expectedDedicatedSession = `${prefix}${projectName}`;
+    const sessionName = project?.tmuxSession || expectedDedicatedSession;
+    const killWindows =
+      !!project && (
+        effectiveConfig.tmux.sessionMode === 'shared' ||
+        sessionName !== expectedDedicatedSession
+      );
+
+    if (!killWindows) {
+      try {
+        execSync(`tmux kill-session -t ${escapeShellArg(sessionName)}`, { stdio: 'ignore' });
+        console.log(chalk.green(`✅ tmux session killed: ${sessionName}`));
+      } catch {
+        console.log(chalk.gray(`   tmux session ${sessionName} not running`));
+      }
+    } else {
+      const enabledAgentTypes = Object.entries(project.agents).filter(([_, enabled]) => enabled).map(([agentType]) => agentType);
+      if (enabledAgentTypes.length === 0) {
+        console.log(chalk.gray(`   No enabled agents in state; not killing tmux windows`));
+      } else {
+        for (const agentType of enabledAgentTypes) {
+          const windowName = project.tmuxWindows?.[agentType] || agentType;
+          const target = `${sessionName}:${windowName}`;
+          try {
+            execSync(`tmux kill-window -t ${escapeShellArg(target)}`, { stdio: 'ignore' });
+            console.log(chalk.green(`✅ tmux window killed: ${target}`));
+          } catch {
+            console.log(chalk.gray(`   tmux window ${target} not running`));
+          }
+        }
+      }
     }
 
     // 2. Delete Discord channel (unless --keep-channel)
-    const project = stateManager.getProject(projectName);
     if (project && !options.keepChannel) {
       const channelIds = Object.values(project.discordChannels).filter(Boolean) as string[];
       if (channelIds.length > 0) {
